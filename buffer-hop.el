@@ -126,6 +126,7 @@ DIRECTION is the direction to move, it can be `forward' or `backward'."
       (bh--move-to-buffer 'backward)
     (previous-buffer)))
 
+;;;###autoload
 (define-minor-mode buffer-hop-mode
   "Buffer hop mode.
 
@@ -149,6 +150,16 @@ When `buffer-hop-mode' is enabled, all buffer navigation will be stored"
         (add-hook 'buffer-hop--buffer-changed-hook #'bh--store-new-buffer))
     (setq buffer-hop--get-ordered-persp-buffers nil)
     (remove-hook 'buffer-hop--buffer-changed-hook #'bh--store-new-buffer)))
+
+;;;###autoload
+(define-globalized-minor-mode
+  global-buffer-hop-mode
+  buffer-hop-mode
+  (lambda ()
+    (unless buffer-hop-mode
+      (buffer-hop-mode)))
+  :group 'buffer-hop)
+
 
 
 
