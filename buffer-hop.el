@@ -27,8 +27,9 @@
 
 ;;; Code:
 (require 'cl-lib)
+(require 'seq)
 
-(defcustom buffer-hop-ignored-buffers-patterns '("^\\*" "^magit")
+(defcustom buffer-hop-ignored-buffers-patterns '("^\\*" "^magit" "^COMMIT_EDITMSG")
   "List of regexps to match ignored buffers."
   :type '(repeat string)
   :group 'buffer-hop)
@@ -38,36 +39,49 @@
   :type '(repeat symbol)
   :group 'buffer-hop)
 
-(defvar bh--get-ordered-persp-buffers nil
+(defvar buffer-hop--get-ordered-persp-buffers nil
   "List of buffers in the order to open for active window.")
+
+(defvar buffer-hop--locked-buffer nil
+  "Previous visible buffer.")
+
+(defvar buffer-hop--buffer-changed-hook nil
+  "Hook to run when buffer is changed.")
 
 (defun bh--store-new-buffer ()
   "Store the current buffer in the list of buffers to be saved."
-  (unless (cl-some (lambda (regexp)
-                     (or (string-match-p regexp (string-trim (buffer-name)))
-                         (member major-mode buffer-hop-disabled-modes)))
-                   buffer-hop-ignored-buffers-patterns)
+  (unless (or (cl-some (lambda (regexp)
+                         (or (string-match-p regexp (string-trim (buffer-name)))
+                             (member major-mode buffer-hop-disabled-modes)))
+                       buffer-hop-ignored-buffers-patterns)
+              (string= (buffer-name (current-buffer)) buffer-hop--locked-buffer))
 
     (let* ((persp-name (bh--get-persp-name))
-           (stored-persp (assoc persp-name bh--get-ordered-persp-buffers))
+           (stored-persp (assoc persp-name buffer-hop--get-ordered-persp-buffers))
            (ordered-buffer-list (if stored-persp
                                     (cdr stored-persp)
-                                  '())))
+                                  '()))
+           (current-buffer-position (seq-position ordered-buffer-list
+                                                  bh--locked-buffer))
+           (current-buffer-position (when current-buffer-position
+                                  (1+ current-buffer-position))))
 
-      ;; (setq ordered-buffer-list (delete (buffer-name) ordered-buffer-list))
-      (unless (member (buffer-name) ordered-buffer-list)
-        (setq ordered-buffer-list (append ordered-buffer-list (list (buffer-name)))))
+      (if (and (length> ordered-buffer-list 0) current-buffer-position)
+          (setq ordered-buffer-list (append (cl-subseq ordered-buffer-list 0 current-buffer-position)
+                                            (list (buffer-name (current-buffer)))
+                                            (cl-subseq ordered-buffer-list current-buffer-position)))
+        (setq ordered-buffer-list (list (buffer-name (current-buffer)))))
 
-      (message "stored window: %s" stored-persp)
+
       (if stored-persp
           (setcdr stored-persp ordered-buffer-list)
-        (push (cons persp-name ordered-buffer-list) bh--get-ordered-persp-buffers))
+        (push (cons persp-name ordered-buffer-list) buffer-hop--get-ordered-persp-buffers))))
 
 
-      ;; (unless (member buffer ordered-buffer-list)
-      ;;   (setcdr stored-persp (cons buffer ordered-buffer-list)))
-      (message "Stored buffer %s" bh--get-ordered-persp-buffers)
-      )))
+
+  (when (not (equal (current-buffer) buffer-hop--locked-buffer))
+    (setq buffer-hop--locked-buffer (buffer-name (current-buffer)))))
+
 
 (defun bh--get-persp-name ()
   "Get persp name of current opened buffer or return default."
@@ -77,29 +91,22 @@
 
 (defun bh--change-buffer (buffer)
   "Change buffer to BUFFER."
-  (remove-hook 'buffer-list-update-hook #'bh--store-new-buffer)
-  (switch-to-buffer buffer)
-  (add-hook 'buffer-list-update-hook #'bh--store-new-buffer)
-  (message "Switched to buffer %s" buffer))
+  (setq buffer-hop--locked-buffer buffer)
+  (switch-to-buffer buffer))
 
 (defun bh--move-to-buffer (direction)
   "Move to the next buffer in the list of buffers to be saved.
 
 DIRECTION is the direction to move, it can be `forward' or `backward'."
   (let* ((persp-name (bh--get-persp-name))
-         (stored-persp (assoc persp-name bh--get-ordered-persp-buffers))
+         (stored-persp (assoc persp-name buffer-hop--get-ordered-persp-buffers))
          (ordered-buffer-list (cdr-safe stored-persp))
          (navigation-list (if (equal direction 'forward)
-                                                          ordered-buffer-list
-                                                        (reverse ordered-buffer-list)))
+                              ordered-buffer-list
+                            (reverse ordered-buffer-list)))
          (before-current-buffer (member (buffer-name) navigation-list))
          (next-buffer (or (car-safe (cdr-safe before-current-buffer))
                           (cl-first navigation-list))))
-
-    (message "Before current buffer %s" before-current-buffer)
-    (message "memb: %s" (member (buffer-name) navigation-list))
-    (message "next buffer %s" next-buffer)
-
     (when next-buffer
       (bh--change-buffer next-buffer))))
 
@@ -107,13 +114,17 @@ DIRECTION is the direction to move, it can be `forward' or `backward'."
 (defun bh-next ()
   "Navigate to the next visited buffer."
   (interactive)
-  (bh--move-to-buffer 'forward))
+  (if (bound-and-true-p buffer-hop-mode)
+      (bh--move-to-buffer 'forward)
+    (next-buffer)))
 
 ;;;###autoload
 (defun bh-prev ()
   "Navigate to the previous visited buffer."
   (interactive)
-  (bh--move-to-buffer 'backward))
+  (if (bound-and-true-p buffer-hop-mode)
+      (bh--move-to-buffer 'backward)
+    (previous-buffer)))
 
 (define-minor-mode buffer-hop-mode
   "Buffer hop mode.
@@ -128,10 +139,18 @@ When `buffer-hop-mode' is enabled, all buffer navigation will be stored"
   :global nil
   :lighter nil
   :group 'buffer-hop
+  (unless (member buffer-hop--buffer-changed-hook window-buffer-change-functions)
+    (add-to-list 'window-buffer-change-functions
+                 (lambda (&rest _)
+                   (run-hooks 'buffer-hop--buffer-changed-hook))))
   (if buffer-hop-mode
-      (add-hook 'buffer-list-update-hook #'bh--store-new-buffer)
-    (setq bh--get-ordered-persp-buffers nil)
-    (remove-hook 'buffer-list-update-hook #'bh--store-new-buffer)))
+      (progn
+        (bh--store-new-buffer)
+        (add-hook 'buffer-hop--buffer-changed-hook #'bh--store-new-buffer))
+    (setq buffer-hop--get-ordered-persp-buffers nil)
+    (remove-hook 'buffer-hop--buffer-changed-hook #'bh--store-new-buffer)))
+
+
 
 (provide 'buffer-hop)
 
