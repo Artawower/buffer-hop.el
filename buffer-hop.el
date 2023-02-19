@@ -70,7 +70,8 @@
           (setq ordered-buffer-list (append (cl-subseq ordered-buffer-list 0 current-buffer-position)
                                             (list (buffer-name (current-buffer)))
                                             (cl-subseq ordered-buffer-list current-buffer-position)))
-        (setq ordered-buffer-list (list (buffer-name (current-buffer)))))
+        (setq ordered-buffer-list (append ordered-buffer-list (list (buffer-name (current-buffer))))))
+      (message "ordered-buffer-list: %s" ordered-buffer-list)
 
 
       (if stored-persp
@@ -85,8 +86,9 @@
 
 (defun bh--get-persp-name ()
   "Get persp name of current opened buffer or return default."
+  (message "persp name: %s for buffer %s" (safe-persp-name (get-current-persp)) (buffer-name (current-buffer)))
   (if (bound-and-true-p persp-mode)
-      (persp-name (get-current-persp))
+      (safe-persp-name (get-current-persp))
     "default"))
 
 (defun bh--change-buffer (buffer)
@@ -107,6 +109,7 @@ DIRECTION is the direction to move, it can be `forward' or `backward'."
          (before-current-buffer (member (buffer-name) navigation-list))
          (next-buffer (or (car-safe (cdr-safe before-current-buffer))
                           (cl-first navigation-list))))
+    (message "navigation list %s" navigation-list)
     (when next-buffer
       (bh--change-buffer next-buffer))))
 
@@ -146,7 +149,8 @@ When `buffer-hop-mode' is enabled, all buffer navigation will be stored"
                    (run-hooks 'buffer-hop--buffer-changed-hook))))
   (if buffer-hop-mode
       (progn
-        (bh--store-new-buffer)
+        (when (get-buffer-window (current-buffer))
+          (bh--store-new-buffer))
         (add-hook 'buffer-hop--buffer-changed-hook #'bh--store-new-buffer))
     (setq buffer-hop--get-ordered-persp-buffers nil)
     (remove-hook 'buffer-hop--buffer-changed-hook #'bh--store-new-buffer)))
