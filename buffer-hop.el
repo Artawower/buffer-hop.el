@@ -4,7 +4,7 @@
 
 ;; Author: Artur Yaroshenko <artawower@protonmail.com>
 ;; URL: https://github.com/artawower/buffer-hop.el
-;; Package-Requires: ((emacs "24.4"))
+;; Package-Requires: ((emacs "28.1"))
 ;; Version: 0.1
 
 ;; This program is free software; you can redistribute it and/or modify
@@ -34,9 +34,14 @@
   :type '(repeat string)
   :group 'buffer-hop)
 
-(defcustom buffer-hop-disabled-modes '(minibuffer-mode)
+(defcustom buffer-hop-disabled-modes '(minibuffer-mode dired-mode)
   "List of modes to ignore."
   :type '(repeat symbol)
+  :group 'buffer-hop)
+
+(defcustom buffer-hop-always-allowed-buffers-patterns '("\\*new\\*")
+  "List of regexps to match always allowed buffers."
+  :type '(repeat string)
   :group 'buffer-hop)
 
 (defvar buffer-hop--get-ordered-persp-buffers nil
@@ -48,30 +53,60 @@
 (defvar buffer-hop--buffer-changed-hook nil
   "Hook to run when buffer is changed.")
 
+(defun bh--allow-store-buffer-p (buffer-name)
+  "Check if BUFFER-NAME should be stored."
+  (or (not (cl-some (lambda (regexp)
+                      (or (string-match-p regexp (string-trim buffer-name))
+                          (member major-mode buffer-hop-disabled-modes)))
+                    buffer-hop-ignored-buffers-patterns))
+      (cl-some (lambda (regexp)
+                 (string-match-p regexp (string-trim buffer-name)))
+               buffer-hop-always-allowed-buffers-patterns)))
+
+(defun bh--verify-existing-buffers ()
+  "Verify that all buffers in `buffer-hop--get-ordered-persp-buffers' are still alive."
+  (let ((alive-buffers (buffer-list)))
+    ;; (dolist (persp-buffers buffer-hop--get-ordered-persp-buffers)
+    ;;   (setf (car persp-buffers)
+    ;;         (seq-filter (lambda (buffer)
+    ;;                       (member buffer alive-buffers))
+    ;;                     (car persp-buffers))))
+    ))
+
 (defun bh--store-new-buffer ()
   "Store the current buffer in the list of buffers to be saved."
-  (unless (or (cl-some (lambda (regexp)
-                         (or (string-match-p regexp (string-trim (buffer-name)))
-                             (member major-mode buffer-hop-disabled-modes)))
-                       buffer-hop-ignored-buffers-patterns)
-              (string= (buffer-name (current-buffer)) buffer-hop--locked-buffer))
+  ;; (message "buffer name: %s, allow store? %s" (buffer-name) (bh--allow-store-buffer-p (buffer-name)))
+  (when (and (bh--allow-store-buffer-p (buffer-name))
+             (not (string= (buffer-name (current-buffer)) buffer-hop--locked-buffer)))
+    ;; (message "WILL DELETE BUFF")
 
+    (bh--verify-existing-buffers)
     (let* ((persp-name (bh--get-persp-name))
            (stored-persp (assoc persp-name buffer-hop--get-ordered-persp-buffers))
            (ordered-buffer-list (if stored-persp
                                     (cdr stored-persp)
                                   '()))
            (current-buffer-position (seq-position ordered-buffer-list
-                                                  bh--locked-buffer))
+                                                  buffer-hop--locked-buffer))
            (current-buffer-position (when current-buffer-position
-                                  (1+ current-buffer-position))))
+                                      (1+ current-buffer-position)))
+           )
 
+      ;;(message "deleted buffer: %s, insert pos: %s" (buffer-name) current-buffer-position)
+      ;;(message "locked buffer: %s" buffer-hop--locked-buffer)
       (if (and (length> ordered-buffer-list 0) current-buffer-position)
-          (setq ordered-buffer-list (append (cl-subseq ordered-buffer-list 0 current-buffer-position)
-                                            (list (buffer-name (current-buffer)))
-                                            (cl-subseq ordered-buffer-list current-buffer-position)))
-        (setq ordered-buffer-list (append ordered-buffer-list (list (buffer-name (current-buffer))))))
-      (message "ordered-buffer-list: %s" ordered-buffer-list)
+          (progn
+            (setq ordered-buffer-list (delete (buffer-name) ordered-buffer-list))
+            ;; (setf ordered-buffer-list
+            ;;       (cl-delete (nth (buffer-name) ordered-buffer-list) ordered-buffer-list :test 'equal))
+            (setq ordered-buffer-list (append (cl-subseq ordered-buffer-list 0 current-buffer-position)
+                                              (list (buffer-name (current-buffer)))
+                                              (cl-subseq ordered-buffer-list current-buffer-position)))
+            )
+        (unless (member (buffer-name (current-buffer)) ordered-buffer-list)
+          (setq ordered-buffer-list (append ordered-buffer-list (list (buffer-name (current-buffer)))))))
+
+      ;;(message "ordered-buffer-list: %s" ordered-buffer-list)
 
 
       (if stored-persp
@@ -80,13 +115,13 @@
 
 
 
-  (when (not (equal (current-buffer) buffer-hop--locked-buffer))
+  (when (and (not (equal (current-buffer) buffer-hop--locked-buffer))
+             (bh--allow-store-buffer-p (buffer-name)))
     (setq buffer-hop--locked-buffer (buffer-name (current-buffer)))))
 
 
 (defun bh--get-persp-name ()
   "Get persp name of current opened buffer or return default."
-  (message "persp name: %s for buffer %s" (safe-persp-name (get-current-persp)) (buffer-name (current-buffer)))
   (if (bound-and-true-p persp-mode)
       (safe-persp-name (get-current-persp))
     "default"))
@@ -96,22 +131,25 @@
   (setq buffer-hop--locked-buffer buffer)
   (switch-to-buffer buffer))
 
-(defun bh--move-to-buffer (direction)
+(defun bh--move-to-buffer (direction &optional current-buffer-name)
   "Move to the next buffer in the list of buffers to be saved.
 
-DIRECTION is the direction to move, it can be `forward' or `backward'."
+DIRECTION is the direction to move, it can be `forward' or `backward'.
+CURRENT-BUFFER-NAME is optional arg for recursive search."
   (let* ((persp-name (bh--get-persp-name))
          (stored-persp (assoc persp-name buffer-hop--get-ordered-persp-buffers))
          (ordered-buffer-list (cdr-safe stored-persp))
          (navigation-list (if (equal direction 'forward)
                               ordered-buffer-list
                             (reverse ordered-buffer-list)))
-         (before-current-buffer (member (buffer-name) navigation-list))
+         (before-current-buffer (member (or current-buffer-name (buffer-name)) navigation-list))
          (next-buffer (or (car-safe (cdr-safe before-current-buffer))
                           (cl-first navigation-list))))
-    (message "navigation list %s" navigation-list)
-    (when next-buffer
-      (bh--change-buffer next-buffer))))
+
+    ;;(message "navigation list: %s" navigation-list)
+    (if (get-buffer next-buffer)
+        (bh--change-buffer next-buffer)
+      (bh--move-to-buffer direction next-buffer))))
 
 ;;;###autoload
 (defun bh-next ()
@@ -128,6 +166,11 @@ DIRECTION is the direction to move, it can be `forward' or `backward'."
   (if (bound-and-true-p buffer-hop-mode)
       (bh--move-to-buffer 'backward)
     (previous-buffer)))
+
+(defun bh-reset()
+  "Reset buffer-hop."
+  (interactive)
+  (setq buffer-hop--get-ordered-persp-buffers nil))
 
 ;;;###autoload
 (define-minor-mode buffer-hop-mode
