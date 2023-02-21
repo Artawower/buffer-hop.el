@@ -166,8 +166,6 @@
     (unless stored-window
       (bh--store-new-buffer))))
 
-
-
 (when (and (not (bh--buffer-locked-p (buffer-name (current-buffer))))
            (bh--allow-store-buffer-p (buffer-name)))
   (bh--lock-buffer (buffer-name (current-buffer))))
@@ -219,6 +217,21 @@ CURRENT-BUFFER-NAME is optional arg for recursive search."
   "Reset buffer-hop."
   (interactive)
   (setq bh--get-ordered-persp-buffers nil))
+
+(defun bh--get-list-of-visited-buffers ()
+  "Get the list of visited buffers in current window and persp."
+  (let* ((persp-name (bh--get-persp-name))
+         (stored-persp (assoc persp-name bh--get-ordered-persp-buffers))
+         (stored-window (when stored-persp (assoc (bh--get-window-id) (cdr stored-persp)))))
+    (cdr-safe stored-window)))
+
+;;;###autoload
+(defun bh-jump-to-recently-buffer ()
+  "Hop to visited buffer."
+  (interactive)
+  (when-let ((choosed-buffer (completing-read "Swtich to buffer: " (bh--get-list-of-visited-buffers))))
+    (bh--change-buffer choosed-buffer)))
+
 
 ;;;###autoload
 (define-minor-mode buffer-hop-mode
