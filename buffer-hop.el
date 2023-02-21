@@ -65,6 +65,12 @@
                  (string-match-p regexp (string-trim buffer-name)))
                buffer-hop-always-allowed-buffers-patterns)))
 
+(defun buffer-hop--get-persp-name ()
+  "Get persp name of current opened buffer or return default."
+  (if (and (fboundp 'safe-persp-name) (fboundp 'get-current-persp))
+      (safe-persp-name (get-current-persp))
+    "default"))
+
 (defun buffer-hop--init-persp-window-store ()
   "Init storage for persp and windows if not exist."
   (let* ((persp-name (buffer-hop--get-persp-name))
@@ -157,12 +163,6 @@
            (buffer-hop--allow-store-buffer-p (buffer-name)))
   (buffer-hop--lock-buffer (buffer-name (current-buffer))))
 
-
-(defun buffer-hop--get-persp-name ()
-  "Get persp name of current opened buffer or return default."
-  (if (and (fboundp 'safe-persp-name) (fboundp 'get-current-persp))
-      (safe-persp-name (get-current-persp))
-    "default"))
 
 (defun buffer-hop--get-window-id ()
   "Get window id of current opened buffer."
