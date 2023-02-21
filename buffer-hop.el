@@ -29,52 +29,52 @@
 (require 'cl-lib)
 (require 'seq)
 
-(defcustom buffer-hop-ignored-buffers-patterns '("^\\*" "^magit" "^COMMIT_EDITMSG")
+(defcustom bh-ignored-buffers-patterns '("^\\*" "^magit" "^COMMIT_EDITMSG")
   "List of regexps to match ignored buffers."
   :type '(repeat string)
   :group 'buffer-hop)
 
-(defcustom buffer-hop-disabled-modes '(minibuffer-mode dired-mode)
+(defcustom bh-disabled-modes '(minibuffer-mode dired-mode)
   "List of modes to ignore."
   :type '(repeat symbol)
   :group 'buffer-hop)
 
-(defcustom buffer-hop-always-allowed-buffers-patterns '("\\*new\\*")
+(defcustom bh-always-allowed-buffers-patterns '("\\*new\\*")
   "List of regexps to match always allowed buffers."
   :type '(repeat string)
   :group 'buffer-hop)
 
-(defvar buffer-hop--get-ordered-persp-buffers nil
+(defvar bh--get-ordered-persp-buffers nil
   "List of buffers in the order to open for active window.")
 
-(defvar buffer-hop--persp-window-locked-buffers nil
+(defvar bh--persp-window-locked-buffers nil
   "Nested list of buffers locked for windows and persps.")
 
-(setq buffer-hop--get-ordered-persp-buffers nil)
+(setq bh--get-ordered-persp-buffers nil)
 
-(defvar buffer-hop--buffer-changed-hook nil
+(defvar bh--buffer-changed-hook nil
   "Hook to run when buffer is changed.")
 
 (defun bh--allow-store-buffer-p (buffer-name)
   "Check if BUFFER-NAME should be stored."
   (or (not (cl-some (lambda (regexp)
                       (or (string-match-p regexp (string-trim buffer-name))
-                          (member major-mode buffer-hop-disabled-modes)))
-                    buffer-hop-ignored-buffers-patterns))
+                          (member major-mode bh-disabled-modes)))
+                    bh-ignored-buffers-patterns))
       (cl-some (lambda (regexp)
                  (string-match-p regexp (string-trim buffer-name)))
-               buffer-hop-always-allowed-buffers-patterns)))
+               bh-always-allowed-buffers-patterns)))
 
 (defun bh--init-persp-window-store ()
   "Init storage for persp and windows if not exist."
   (let* ((persp-name (bh--get-persp-name))
          (window-id (bh--get-window-id))
-         (stored-persps (assoc persp-name buffer-hop--get-ordered-persp-buffers))
+         (stored-persps (assoc persp-name bh--get-ordered-persp-buffers))
          (stored-windows (when stored-persps (assoc window-id (cdr stored-persps)))))
 
     (unless stored-persps
-      (push (cons persp-name nil) buffer-hop--get-ordered-persp-buffers)
-      (setq stored-persps (assoc persp-name buffer-hop--get-ordered-persp-buffers)))
+      (push (cons persp-name nil) bh--get-ordered-persp-buffers)
+      (setq stored-persps (assoc persp-name bh--get-ordered-persp-buffers)))
 
     (unless stored-windows
       (setf (cdr stored-persps)
@@ -84,7 +84,7 @@
   "Return current locked buffer for current persp and window."
   (let* ((persp-name (bh--get-persp-name))
          (window-id (bh--get-window-id))
-         (stored-persp (assoc persp-name buffer-hop--persp-window-locked-buffers))
+         (stored-persp (assoc persp-name bh--persp-window-locked-buffers))
          (stored-window (when stored-persp (assoc window-id (cdr stored-persp)))))
     (cdr-safe stored-window)))
 
@@ -97,14 +97,14 @@
   "Lock BUFFER-NAME for current window and persp."
   (let* ((persp-name (bh--get-persp-name))
          (window-id (bh--get-window-id))
-         (stored-persp (assoc persp-name buffer-hop--persp-window-locked-buffers))
+         (stored-persp (assoc persp-name bh--persp-window-locked-buffers))
          (stored-window (when stored-persp (assoc window-id (cdr stored-persp)))))
     (if stored-window
         (setf (cdr stored-window) buffer-name)
 
       (unless stored-persp
-        (push (cons persp-name nil) buffer-hop--persp-window-locked-buffers)
-        (setq stored-persp (assoc persp-name buffer-hop--persp-window-locked-buffers)))
+        (push (cons persp-name nil) bh--persp-window-locked-buffers)
+        (setq stored-persp (assoc persp-name bh--persp-window-locked-buffers)))
 
       (unless stored-window
         (setf (cdr stored-persp)
@@ -118,7 +118,7 @@
              (not (bh--buffer-locked-p (buffer-name))))
 
     (let* ((persp-name (bh--get-persp-name))
-           (stored-persp (assoc persp-name buffer-hop--get-ordered-persp-buffers))
+           (stored-persp (assoc persp-name bh--get-ordered-persp-buffers))
            (stored-window (bh--get-window-id))
            (ordered-window-list (assoc stored-window (cdr stored-persp)))
            (ordered-buffer-list (cdr ordered-window-list))
@@ -145,7 +145,7 @@
   "Try to store the new appeared window and buffer attached to it."
   (let* ((window-id (bh--get-window-id))
          (persp-name (bh--get-persp-name))
-         (stored-windows (assoc persp-name buffer-hop--get-ordered-persp-buffers))
+         (stored-windows (assoc persp-name bh--get-ordered-persp-buffers))
          (stored-window (assoc window-id (cdr stored-windows))))
 
     (unless stored-window
@@ -184,7 +184,7 @@
 DIRECTION is the direction to move, it can be `forward' or `backward'.
 CURRENT-BUFFER-NAME is optional arg for recursive search."
   (let* ((persp-name (bh--get-persp-name))
-         (stored-persp (assoc persp-name buffer-hop--get-ordered-persp-buffers))
+         (stored-persp (assoc persp-name bh--get-ordered-persp-buffers))
          (window-id (bh--get-window-id))
          (stored-windows (when stored-persp (assoc window-id stored-persp)))
          (ordered-buffer-list (cdr-safe stored-windows))
@@ -219,7 +219,7 @@ CURRENT-BUFFER-NAME is optional arg for recursive search."
 (defun bh-reset()
   "Reset buffer-hop."
   (interactive)
-  (setq buffer-hop--get-ordered-persp-buffers nil))
+  (setq bh--get-ordered-persp-buffers nil))
 
 ;;;###autoload
 (define-minor-mode buffer-hop-mode
@@ -235,21 +235,21 @@ When `buffer-hop-mode' is enabled, all buffer navigation will be stored"
   :global nil
   :lighter nil
   :group 'buffer-hop
-  (unless (member buffer-hop--buffer-changed-hook window-buffer-change-functions)
+  (unless (member bh--buffer-changed-hook window-buffer-change-functions)
     (add-to-list 'window-buffer-change-functions
                  (lambda (&rest _)
-                   (run-hooks 'buffer-hop--buffer-changed-hook))))
-  (if buffer-hop-mode
+                   (run-hooks 'bh--buffer-changed-hook))))
+  (if bh-mode
       (progn
         (when (get-buffer-window (current-buffer))
           (bh--store-new-buffer))
-        (add-hook 'buffer-hop--buffer-changed-hook #'bh--store-new-buffer)
+        (add-hook 'bh--buffer-changed-hook #'bh--store-new-buffer)
         (add-hook 'window-configuration-change-hook #'bh--store-new-window)
         (add-hook 'window-state-change-hook #'bh--store-new-window))
 
-    (setq buffer-hop--get-ordered-persp-buffers nil)
-    (setq buffer-hop--persp-window-locked-buffers nil)
-    (remove-hook 'buffer-hop--buffer-changed-hook #'bh--store-new-buffer)
+    (setq bh--get-ordered-persp-buffers nil)
+    (setq bh--persp-window-locked-buffers nil)
+    (remove-hook 'bh--buffer-changed-hook #'bh--store-new-buffer)
     (remove-hook 'window-configuration-change-hook #'bh--store-new-window)
     (remove-hook 'window-state-change-hook #'bh--store-new-window)))
 
