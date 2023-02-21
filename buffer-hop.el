@@ -160,7 +160,7 @@
 
 (defun bh--get-persp-name ()
   "Get persp name of current opened buffer or return default."
-  (if (bound-and-true-p persp-mode)
+  (if (and (fboundp 'safe-persp-name) (fboundp 'get-current-persp))
       (safe-persp-name (get-current-persp))
     "default"))
 
