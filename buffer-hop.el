@@ -55,6 +55,9 @@
 (defvar bh--buffer-changed-hook nil
   "Hook to run when buffer is changed.")
 
+(defvar bh--previous-window-state nil
+  "The state of the previous window, used to copy state when window splitted.")
+
 (defun bh--allow-store-buffer-p (buffer-name)
   "Check if BUFFER-NAME should be stored."
   (or (not (cl-some (lambda (regexp)
@@ -93,7 +96,8 @@
 
     (unless stored-windows
       (setf (cdr stored-persps)
-            (push (cons window-id nil) (cdr stored-persps))))))
+            (push (cons window-id bh--previous-window-state) (cdr stored-persps))))
+    (setq bh--previous-window-state nil)))
 
 (defun bh--get-locked-buffer ()
   "Return current locked buffer for current persp and window."
@@ -164,7 +168,8 @@
          (stored-window (assoc window-id (cdr stored-windows))))
 
     (unless stored-window
-      (bh--store-new-buffer))))
+      (bh--store-new-buffer))
+    (setq bh--previous-window-state nil)))
 
 (when (and (not (bh--buffer-locked-p (buffer-name (current-buffer))))
            (bh--allow-store-buffer-p (buffer-name)))
@@ -225,6 +230,15 @@ CURRENT-BUFFER-NAME is optional arg for recursive search."
          (stored-window (when stored-persp (assoc (bh--get-window-id) (cdr stored-persp)))))
     (cdr-safe stored-window)))
 
+(defun bh--store-window-state (&rest _)
+  "Store current window state."
+  (let* ((persp-name (bh--get-persp-name))
+         (window-name (bh--get-window-id))
+         (stored-persps (assoc persp-name bh--get-ordered-persp-buffers))
+         (stored-window (assoc window-name (cdr stored-persps)))
+         (stored-buffers (cdr stored-window)))
+    (setq bh--previous-window-state stored-buffers)))
+
 ;;;###autoload
 (defun bh-jump-to-recently-buffer ()
   "Hop to visited buffer."
@@ -232,10 +246,30 @@ CURRENT-BUFFER-NAME is optional arg for recursive search."
   (when-let ((choosed-buffer (completing-read "Swtich to buffer: " (bh--get-list-of-visited-buffers))))
     (bh--change-buffer choosed-buffer)))
 
+(defun bh--init-hooks ()
+  "Init hooks for buffer-hop."
+  (add-hook 'bh--buffer-changed-hook #'bh--store-new-buffer)
+  (add-hook 'window-configuration-change-hook #'bh--store-new-window)
+  (add-hook 'window-state-change-hook #'bh--store-new-window)
+  (advice-add 'split-window :before #'bh--store-window-state))
+
+(defun bh--destroy-hooks ()
+  "Destroy hooks for buffer-hop."
+  (remove-hook 'bh--buffer-changed-hook #'bh--store-new-buffer)
+  (remove-hook 'window-configuration-change-hook #'bh--store-new-window)
+  (remove-hook 'window-state-change-hook #'bh--store-new-window)
+  (advice-remove 'split-window #'bh--store-window-state))
+
+(defun bh--init-advices ()
+  "Init advices for buffer-hop."
+  (unless (member bh--buffer-changed-hook window-buffer-change-functions)
+    (add-to-list 'window-buffer-change-functions
+                 (lambda (&rest _)
+                   (run-hooks 'bh--buffer-changed-hook)))))
 
 ;;;###autoload
 (define-minor-mode buffer-hop-mode
-  "Buffer hop mode.
+  "Buffer hop mode.)
 
 Interactively with no argument, this command toggles the mode.
 A positive prefix argument enables the mode, any other prefix
@@ -247,23 +281,16 @@ When `buffer-hop-mode' is enabled, all buffer navigation will be stored"
   :global nil
   :lighter nil
   :group 'buffer-hop
-  (unless (member bh--buffer-changed-hook window-buffer-change-functions)
-    (add-to-list 'window-buffer-change-functions
-                 (lambda (&rest _)
-                   (run-hooks 'bh--buffer-changed-hook))))
+  (bh--init-advices)
   (if buffer-hop-mode
       (progn
         (when (get-buffer-window (current-buffer))
           (bh--store-new-buffer))
-        (add-hook 'bh--buffer-changed-hook #'bh--store-new-buffer)
-        (add-hook 'window-configuration-change-hook #'bh--store-new-window)
-        (add-hook 'window-state-change-hook #'bh--store-new-window))
+        (bh--init-hooks))
 
     (setq bh--get-ordered-persp-buffers nil)
     (setq bh--persp-window-locked-buffers nil)
-    (remove-hook 'bh--buffer-changed-hook #'bh--store-new-buffer)
-    (remove-hook 'window-configuration-change-hook #'bh--store-new-window)
-    (remove-hook 'window-state-change-hook #'bh--store-new-window)))
+    (bh--destroy-hooks)))
 
 ;;;###autoload
 (define-globalized-minor-mode
@@ -282,3 +309,4 @@ When `buffer-hop-mode' is enabled, all buffer navigation will be stored"
 ;; End:
 
 ;;; buffer-hop.el ends here
+
