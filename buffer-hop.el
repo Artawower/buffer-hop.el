@@ -146,17 +146,18 @@
            (current-buffer-position (when current-buffer-position
                                       (1+ current-buffer-position))))
 
+      (when (member (buffer-name (current-buffer)) ordered-buffer-list)
+        (setq ordered-buffer-list (delete (buffer-name (current-buffer)) ordered-buffer-list)))
+
       (if (and (length> ordered-buffer-list 0)
-               current-buffer-position
-               (not (equal current-buffer-position (1- (length ordered-buffer-list)))))
+               current-buffer-position)
           (progn
             (setq ordered-buffer-list (delete (buffer-name) ordered-buffer-list))
             (setq ordered-buffer-list (append (cl-subseq ordered-buffer-list 0 current-buffer-position)
                                               (list (buffer-name (current-buffer)))
                                               (cl-subseq ordered-buffer-list current-buffer-position))))
+          (setq ordered-buffer-list (append ordered-buffer-list (list (buffer-name (current-buffer))))))
 
-        (unless (member (buffer-name (current-buffer)) ordered-buffer-list)
-          (setq ordered-buffer-list (append ordered-buffer-list (list (buffer-name (current-buffer)))))))
 
       (setcdr ordered-window-list ordered-buffer-list))))
 
