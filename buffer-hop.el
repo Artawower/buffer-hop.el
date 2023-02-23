@@ -79,9 +79,13 @@
   ;; NOTE: I didn't find how to extract ID of the window correctly 🤷‍♂️
   ;; Spent fucking hour finding solution. If you read this and know how to do it,
   ;; please, let me know.
-  (let ((window-name (format "%s" (get-buffer-window (current-buffer)))))
+  (bh--extract-window-id (get-buffer-window (current-buffer))))
+
+(defun bh--extract-window-id (window)
+  "Return window id from provided WINDOW."
+  (let ((window-name (format "%s" window)))
     (string-match "window \\([0-9]+\\)" window-name)
-    (match-string 1 window-name)))
+    (string-to-number (match-string 1 window-name))))
 
 (defun bh--init-persp-window-store ()
   "Init storage for persp and windows if not exist."
@@ -156,8 +160,7 @@
             (setq ordered-buffer-list (append (cl-subseq ordered-buffer-list 0 current-buffer-position)
                                               (list (buffer-name (current-buffer)))
                                               (cl-subseq ordered-buffer-list current-buffer-position))))
-          (setq ordered-buffer-list (append ordered-buffer-list (list (buffer-name (current-buffer))))))
-
+        (setq ordered-buffer-list (append ordered-buffer-list (list (buffer-name (current-buffer))))))
 
       (setcdr ordered-window-list ordered-buffer-list))))
 
@@ -247,8 +250,31 @@ CURRENT-BUFFER-NAME is optional arg for recursive search."
   (when-let ((choosed-buffer (completing-read "Swtich to buffer: " (bh--get-list-of-visited-buffers))))
     (bh--change-buffer choosed-buffer)))
 
+(defun bh--restore-window-state-from-persp (&rest _)
+  "Restore window state after persp switched.
+
+NOTE: this solves problem when user switch current persp,
+cause persp recreates windows every time."
+  (let* ((window-ids (mapcar #'bh--extract-window-id (window-list)))
+         (sorted-window-ids (sort window-ids #'<))
+         (persp-name (bh--get-persp-name))
+         (stored-persp (assoc persp-name bh--get-ordered-persp-buffers))
+         (stored-windows (cdr stored-persp))
+         (index 0)
+         (new-stored-windows '()))
+
+    (when stored-persp
+      (dolist (stored-window stored-windows)
+        (when (and (cdr stored-window) (nth index sorted-window-ids))
+          (push (cons (nth index sorted-window-ids) (cdr stored-window)) new-stored-windows)
+          (setq index (1+ index))))
+
+      (setf (cdr stored-persp) new-stored-windows))))
+
 (defun bh--init-hooks ()
   "Init hooks for buffer-hop."
+  (when (boundp 'persp-activated-functions)
+    (add-to-list 'persp-activated-functions 'bh--restore-window-state-from-persp))
   (add-hook 'bh--buffer-changed-hook #'bh--store-new-buffer)
   (add-hook 'window-configuration-change-hook #'bh--store-new-window)
   (add-hook 'window-state-change-hook #'bh--store-new-window)
@@ -256,6 +282,8 @@ CURRENT-BUFFER-NAME is optional arg for recursive search."
 
 (defun bh--destroy-hooks ()
   "Destroy hooks for buffer-hop."
+  (when (boundp 'persp-activated-functions)
+    (setq persp-activated-functions (remove 'bh--restore-window-state-from-persp persp-activated-functions)))
   (remove-hook 'bh--buffer-changed-hook #'bh--store-new-buffer)
   (remove-hook 'window-configuration-change-hook #'bh--store-new-window)
   (remove-hook 'window-state-change-hook #'bh--store-new-window)
@@ -310,4 +338,3 @@ When `buffer-hop-mode' is enabled, all buffer navigation will be stored"
 ;; End:
 
 ;;; buffer-hop.el ends here
-
