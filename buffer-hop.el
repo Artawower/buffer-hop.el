@@ -5,7 +5,7 @@
 ;; Author: Artur Yaroshenko <artawower@protonmail.com>
 ;; URL: https://github.com/artawower/buffer-hop.el
 ;; Package-Requires: ((emacs "28.1"))
-;; Version: 0.1
+;; Version: 0.1.1
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -83,9 +83,10 @@
 
 (defun bh--extract-window-id (window)
   "Return window id from provided WINDOW."
-  (let ((window-name (format "%s" window)))
-    (string-match "window \\([0-9]+\\)" window-name)
-    (string-to-number (match-string 1 window-name))))
+  (when window
+    (let ((window-name (format "%s" window)))
+      (string-match "window \\([0-9]+\\)" window-name)
+      (string-to-number (match-string 1 window-name)))))
 
 (defun bh--init-persp-window-store ()
   "Init storage for persp and windows if not exist."
@@ -105,10 +106,10 @@
 
 (defun bh--get-locked-buffer ()
   "Return current locked buffer for current persp and window."
-  (let* ((persp-name (bh--get-persp-name))
-         (window-id (bh--get-window-id))
-         (stored-persp (assoc persp-name bh--persp-window-locked-buffers))
-         (stored-window (when stored-persp (assoc window-id (cdr stored-persp)))))
+  (when-let* ((persp-name (bh--get-persp-name))
+              (window-id (bh--get-window-id))
+              (stored-persp (assoc persp-name bh--persp-window-locked-buffers))
+              (stored-window (when stored-persp (assoc window-id (cdr stored-persp)))))
     (cdr-safe stored-window)))
 
 (defun bh--buffer-locked-p (buffer-name)
@@ -137,47 +138,43 @@
 (defun bh--store-new-buffer ()
   "Store the current buffer in the list of buffers to be saved."
   (bh--init-persp-window-store)
-  (when (and (bh--allow-store-buffer-p (buffer-name))
-             (not (bh--buffer-locked-p (buffer-name))))
+  (let* ((persp-name (bh--get-persp-name))
+         (stored-persp (assoc persp-name bh--get-ordered-persp-buffers))
+         (stored-window (bh--get-window-id))
+         (ordered-window-list (assoc stored-window (cdr stored-persp)))
+         (ordered-buffer-list (cdr ordered-window-list))
+         (current-buffer-position (seq-position ordered-buffer-list
+                                                (bh--get-locked-buffer)))
+         (current-buffer-position (when current-buffer-position
+                                    (1+ current-buffer-position))))
 
-    (let* ((persp-name (bh--get-persp-name))
-           (stored-persp (assoc persp-name bh--get-ordered-persp-buffers))
-           (stored-window (bh--get-window-id))
-           (ordered-window-list (assoc stored-window (cdr stored-persp)))
-           (ordered-buffer-list (cdr ordered-window-list))
-           (current-buffer-position (seq-position ordered-buffer-list
-                                                  (bh--get-locked-buffer)))
-           (current-buffer-position (when current-buffer-position
-                                      (1+ current-buffer-position))))
+    (when (member (buffer-name (current-buffer)) ordered-buffer-list)
+      (setq ordered-buffer-list (delete (buffer-name (current-buffer)) ordered-buffer-list)))
 
-      (when (member (buffer-name (current-buffer)) ordered-buffer-list)
-        (setq ordered-buffer-list (delete (buffer-name (current-buffer)) ordered-buffer-list)))
+    (if (and (length> ordered-buffer-list 0)
+             current-buffer-position)
+        (progn
+          (setq ordered-buffer-list (delete (buffer-name) ordered-buffer-list))
+          (setq ordered-buffer-list (append (cl-subseq ordered-buffer-list 0 current-buffer-position)
+                                            (list (buffer-name (current-buffer)))
+                                            (cl-subseq ordered-buffer-list current-buffer-position))))
+      (setq ordered-buffer-list (append ordered-buffer-list (list (buffer-name (current-buffer))))))
 
-      (if (and (length> ordered-buffer-list 0)
-               current-buffer-position)
-          (progn
-            (setq ordered-buffer-list (delete (buffer-name) ordered-buffer-list))
-            (setq ordered-buffer-list (append (cl-subseq ordered-buffer-list 0 current-buffer-position)
-                                              (list (buffer-name (current-buffer)))
-                                              (cl-subseq ordered-buffer-list current-buffer-position))))
-        (setq ordered-buffer-list (append ordered-buffer-list (list (buffer-name (current-buffer))))))
+    (setcdr ordered-window-list ordered-buffer-list)))
 
-      (setcdr ordered-window-list ordered-buffer-list))))
-
-(defun bh--store-new-window ()
+(defun bh--store-new-window (&rest _)
   "Try to store the new appeared window and buffer attached to it."
-  (let* ((window-id (bh--get-window-id))
-         (persp-name (bh--get-persp-name))
-         (stored-windows (assoc persp-name bh--get-ordered-persp-buffers))
-         (stored-window (assoc window-id (cdr stored-windows))))
+  (when (and (not (bh--buffer-locked-p (buffer-name (current-buffer))))
+             (bh--allow-store-buffer-p (buffer-name)))
+    (let* ((window-id (bh--get-window-id))
+           (persp-name (bh--get-persp-name))
+           (stored-windows (assoc persp-name bh--get-ordered-persp-buffers))
+           (stored-window (assoc window-id (cdr stored-windows))))
 
-    (unless stored-window
-      (bh--store-new-buffer))
-    (setq bh--previous-window-state nil)))
-
-(when (and (not (bh--buffer-locked-p (buffer-name (current-buffer))))
-           (bh--allow-store-buffer-p (buffer-name)))
-  (bh--lock-buffer (buffer-name (current-buffer))))
+      (unless stored-window
+        (bh--store-new-buffer))
+      (setq bh--previous-window-state nil))
+    (bh--lock-buffer (buffer-name (current-buffer)))))
 
 (defun bh--change-buffer (buffer)
   "Change buffer to BUFFER."
